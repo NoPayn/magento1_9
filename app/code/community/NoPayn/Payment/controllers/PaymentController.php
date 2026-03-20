@@ -45,8 +45,12 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
             'return_url'        => Mage::getUrl('nopayn/payment/success', ['_secure' => true]),
             'failure_url'       => Mage::getUrl('nopayn/payment/cancel', ['_secure' => true]),
             'webhook_url'       => Mage::getUrl('nopayn/payment/webhook', ['_secure' => true]),
-            'payment_methods'   => [$nopaynMethod],
-            'expiration_period' => 'PT5M',
+            'transactions'      => [
+                [
+                    'payment_method'    => $nopaynMethod,
+                    'expiration_period' => 'PT5M',
+                ],
+            ],
         ];
 
         $localeMap = [

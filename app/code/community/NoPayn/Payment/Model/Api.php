@@ -10,10 +10,10 @@ class NoPayn_Payment_Model_Api
 
     public function __construct($apiKey = null)
     {
-        if ($apiKey === null) {
-            $this->_apiKey = Mage::helper('nopayn')->getApiKey();
-        } else {
+        if (is_string($apiKey) && $apiKey !== '') {
             $this->_apiKey = $apiKey;
+        } else {
+            $this->_apiKey = Mage::helper('nopayn')->getApiKey();
         }
     }
 

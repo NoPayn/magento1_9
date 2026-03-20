@@ -72,7 +72,12 @@ class NoPayn_Payment_Model_Api
         $result = json_decode($response, true);
 
         if ($httpCode >= 400) {
-            $msg = isset($result['error']) ? $result['error'] : ('HTTP ' . $httpCode);
+            $msg = 'HTTP ' . $httpCode;
+            if (isset($result['error'])) {
+                $msg = is_array($result['error'])
+                    ? (isset($result['error']['value']) ? $result['error']['value'] : json_encode($result['error']))
+                    : $result['error'];
+            }
             Mage::throwException('NoPayn API error: ' . $msg);
         }
 

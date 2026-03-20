@@ -3,15 +3,11 @@
 class NoPayn_Payment_Helper_Data extends Mage_Core_Helper_Abstract
 {
     /**
-     * @return string Decrypted API key
+     * @return string API key
      */
     public function getApiKey($storeId = null)
     {
-        $encrypted = Mage::getStoreConfig('payment/nopayn/api_key', $storeId);
-        if ($encrypted) {
-            return Mage::helper('core')->decrypt($encrypted);
-        }
-        return '';
+        return (string) Mage::getStoreConfig('payment/nopayn/api_key', $storeId);
     }
 
     public function saveTransaction($orderId, $incrementId, $nopaynOrderId, $paymentMethod, $amount, $currency, $status)

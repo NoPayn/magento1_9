@@ -59,7 +59,7 @@
     <default>
         <payment>
             <nopayn>
-                <api_key backend_model="adminhtml/system_config_backend_encrypted" />
+                <api_key />
             </nopayn>
             <nopayn_creditcard>
                 <active>0</active>

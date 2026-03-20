@@ -1,0 +1,102 @@
+<?xml version="1.0"?>
+<config>
+    <modules>
+        <NoPayn_Payment>
+            <version>1.0.0</version>
+        </NoPayn_Payment>
+    </modules>
+
+    <global>
+        <models>
+            <nopayn>
+                <class>NoPayn_Payment_Model</class>
+            </nopayn>
+        </models>
+        <helpers>
+            <nopayn>
+                <class>NoPayn_Payment_Helper</class>
+            </nopayn>
+        </helpers>
+        <blocks>
+            <nopayn>
+                <class>NoPayn_Payment_Block</class>
+            </nopayn>
+        </blocks>
+        <resources>
+            <nopayn_setup>
+                <setup>
+                    <module>NoPayn_Payment</module>
+                </setup>
+                <connection>
+                    <use>core_setup</use>
+                </connection>
+            </nopayn_setup>
+            <nopayn_write>
+                <connection>
+                    <use>core_write</use>
+                </connection>
+            </nopayn_write>
+            <nopayn_read>
+                <connection>
+                    <use>core_read</use>
+                </connection>
+            </nopayn_read>
+        </resources>
+    </global>
+
+    <frontend>
+        <routers>
+            <nopayn>
+                <use>standard</use>
+                <args>
+                    <module>NoPayn_Payment</module>
+                    <frontName>nopayn</frontName>
+                </args>
+            </nopayn>
+        </routers>
+    </frontend>
+
+    <default>
+        <payment>
+            <nopayn>
+                <api_key backend_model="adminhtml/system_config_backend_encrypted" />
+            </nopayn>
+            <nopayn_creditcard>
+                <active>0</active>
+                <model>nopayn/method_creditcard</model>
+                <title>Credit / Debit Card</title>
+                <order_status>pending_payment</order_status>
+                <payment_action>authorize</payment_action>
+                <allowspecific>0</allowspecific>
+                <sort_order>1</sort_order>
+            </nopayn_creditcard>
+            <nopayn_applepay>
+                <active>0</active>
+                <model>nopayn/method_applepay</model>
+                <title>Apple Pay</title>
+                <order_status>pending_payment</order_status>
+                <payment_action>authorize</payment_action>
+                <allowspecific>0</allowspecific>
+                <sort_order>2</sort_order>
+            </nopayn_applepay>
+            <nopayn_googlepay>
+                <active>0</active>
+                <model>nopayn/method_googlepay</model>
+                <title>Google Pay</title>
+                <order_status>pending_payment</order_status>
+                <payment_action>authorize</payment_action>
+                <allowspecific>0</allowspecific>
+                <sort_order>3</sort_order>
+            </nopayn_googlepay>
+            <nopayn_mobilepay>
+                <active>0</active>
+                <model>nopayn/method_mobilepay</model>
+                <title>Vipps MobilePay</title>
+                <order_status>pending_payment</order_status>
+                <payment_action>authorize</payment_action>
+                <allowspecific>0</allowspecific>
+                <sort_order>4</sort_order>
+            </nopayn_mobilepay>
+        </payment>
+    </default>
+</config>

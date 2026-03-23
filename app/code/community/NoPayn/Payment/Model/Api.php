@@ -35,9 +35,36 @@ class NoPayn_Payment_Model_Api
         ]);
     }
 
+    public function captureTransaction($orderId, $transactionId)
+    {
+        return $this->_request(
+            'POST',
+            '/v1/orders/' . urlencode($orderId) . '/transactions/' . urlencode($transactionId) . '/captures/'
+        );
+    }
+
+    public function voidTransaction($orderId, $transactionId, $amountInCents, $description = '')
+    {
+        return $this->_request(
+            'POST',
+            '/v1/orders/' . urlencode($orderId) . '/transactions/' . urlencode($transactionId) . '/voids/amount/',
+            [
+                'amount'      => (int) $amountInCents,
+                'description' => $description,
+            ]
+        );
+    }
+
     protected function _request($method, $endpoint, $data = null)
     {
         $url = self::BASE_URL . $endpoint;
+
+        /** @var NoPayn_Payment_Helper_Data $helper */
+        $helper = Mage::helper('nopayn');
+        $helper->log('API Request: ' . $method . ' ' . $endpoint);
+        if ($data !== null) {
+            $helper->log('API Request Body: ' . json_encode($data));
+        }
 
         $ch = curl_init();
         curl_setopt_array($ch, [
@@ -65,7 +92,10 @@ class NoPayn_Payment_Model_Api
         $error    = curl_error($ch);
         curl_close($ch);
 
+        $helper->log('API Response: HTTP ' . $httpCode . ' ' . $response);
+
         if ($error) {
+            $helper->log('API Connection Error: ' . $error);
             Mage::throwException('NoPayn API connection error: ' . $error);
         }
 
@@ -78,6 +108,7 @@ class NoPayn_Payment_Model_Api
                     ? (isset($result['error']['value']) ? $result['error']['value'] : json_encode($result['error']))
                     : $result['error'];
             }
+            $helper->log('API Error: ' . $msg);
             Mage::throwException('NoPayn API error: ' . $msg);
         }
 

@@ -2,7 +2,7 @@
 <config>
     <modules>
         <NoPayn_Payment>
-            <version>1.0.0</version>
+            <version>1.1.0</version>
         </NoPayn_Payment>
     </modules>
 
@@ -42,6 +42,24 @@
                 </connection>
             </nopayn_read>
         </resources>
+        <events>
+            <order_cancel_after>
+                <observers>
+                    <nopayn_void_on_cancel>
+                        <class>nopayn/observer</class>
+                        <method>voidOnCancel</method>
+                    </nopayn_void_on_cancel>
+                </observers>
+            </order_cancel_after>
+            <sales_order_save_after>
+                <observers>
+                    <nopayn_capture_on_complete>
+                        <class>nopayn/observer</class>
+                        <method>captureOnComplete</method>
+                    </nopayn_capture_on_complete>
+                </observers>
+            </sales_order_save_after>
+        </events>
     </global>
 
     <frontend>
@@ -60,6 +78,7 @@
         <payment>
             <nopayn>
                 <api_key />
+                <debug_logging>0</debug_logging>
             </nopayn>
             <nopayn_creditcard>
                 <active>0</active>
@@ -69,6 +88,7 @@
                 <payment_action>authorize</payment_action>
                 <allowspecific>0</allowspecific>
                 <sort_order>1</sort_order>
+                <manual_capture>0</manual_capture>
             </nopayn_creditcard>
             <nopayn_applepay>
                 <active>0</active>

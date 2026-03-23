@@ -21,13 +21,16 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
             return;
         }
 
+        /** @var NoPayn_Payment_Helper_Data $helper */
+        $helper = Mage::helper('nopayn');
+
         $payment        = $order->getPayment();
         $methodInstance = $payment->getMethodInstance();
         $apiKey         = $methodInstance->getApiKey();
 
         if (!$apiKey) {
             Mage::getSingleton('core/session')->addError(
-                Mage::helper('nopayn')->__('NoPayn API key is not configured.')
+                $helper->__('NoPayn API key is not configured.')
             );
             $this->_restoreQuoteAndRedirect($session);
             return;
@@ -37,6 +40,60 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
         $currency     = $order->getOrderCurrencyCode();
         $nopaynMethod = $methodInstance->getNopaynMethod();
 
+        $helper->log('Redirect: Creating order for Magento order #' . $order->getIncrementId()
+            . ', method=' . $nopaynMethod . ', amount=' . $amountCents . ' ' . $currency);
+
+        $transactionData = [
+            'payment_method'    => $nopaynMethod,
+            'expiration_period' => 'PT5M',
+        ];
+
+        // Manual capture for credit card
+        $captureMode = 'auto';
+        if ($nopaynMethod === 'credit-card' && $helper->isManualCaptureEnabled($order->getStoreId())) {
+            $transactionData['capture_mode'] = 'manual';
+            $captureMode = 'manual';
+            $helper->log('Redirect: Manual capture enabled for order #' . $order->getIncrementId());
+        }
+
+        // Build order lines from order items
+        $orderLines = [];
+        foreach ($order->getAllVisibleItems() as $item) {
+            $unitPriceCents = (int) round($item->getPriceInclTax() * 100);
+            $taxPercent     = (int) round($item->getTaxPercent() * 100);
+
+            $orderLines[] = [
+                'type'                    => 'physical',
+                'name'                    => $item->getName(),
+                'quantity'                => (int) $item->getQtyOrdered(),
+                'amount'                  => $unitPriceCents,
+                'currency'                => $currency,
+                'vat_percentage'          => $taxPercent,
+                'merchant_order_line_id'  => $item->getSku(),
+            ];
+        }
+
+        // Add shipping line if applicable
+        $shippingAmount = $order->getShippingInclTax();
+        if ($shippingAmount > 0) {
+            $shippingTaxPercent = 0;
+            if ($order->getShippingAmount() > 0) {
+                $shippingTaxPercent = (int) round(
+                    ($order->getShippingTaxAmount() / $order->getShippingAmount()) * 100 * 100
+                );
+            }
+
+            $orderLines[] = [
+                'type'                    => 'shipping_fee',
+                'name'                    => $order->getShippingDescription() ?: 'Shipping',
+                'quantity'                => 1,
+                'amount'                  => (int) round($shippingAmount * 100),
+                'currency'                => $currency,
+                'vat_percentage'          => $shippingTaxPercent,
+                'merchant_order_line_id'  => 'shipping',
+            ];
+        }
+
         $params = [
             'currency'          => $currency,
             'amount'            => $amountCents,
@@ -45,12 +102,8 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
             'return_url'        => Mage::getUrl('nopayn/payment/success', ['_secure' => true]),
             'failure_url'       => Mage::getUrl('nopayn/payment/cancel', ['_secure' => true]),
             'webhook_url'       => Mage::getUrl('nopayn/payment/webhook', ['_secure' => true]),
-            'transactions'      => [
-                [
-                    'payment_method'    => $nopaynMethod,
-                    'expiration_period' => 'PT5M',
-                ],
-            ],
+            'transactions'      => [$transactionData],
+            'order_lines'       => $orderLines,
         ];
 
         $localeMap = [
@@ -73,14 +126,22 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
 
             $nopaynOrderId = $result['id'];
 
-            Mage::helper('nopayn')->saveTransaction(
+            // Extract transaction ID from API response for capture/void
+            $transactionId = null;
+            if (!empty($result['transactions'][0]['id'])) {
+                $transactionId = $result['transactions'][0]['id'];
+            }
+
+            $helper->saveTransaction(
                 $order->getId(),
                 $order->getIncrementId(),
                 $nopaynOrderId,
                 $nopaynMethod,
                 $amountCents,
                 $currency,
-                'new'
+                'new',
+                $captureMode,
+                $transactionId
             );
 
             $session->setNopaynOrderId($nopaynOrderId);
@@ -96,12 +157,14 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
                 Mage::throwException('No payment URL returned from NoPayn.');
             }
 
+            $helper->log('Redirect: Redirecting to payment URL for order #' . $order->getIncrementId());
             $this->_redirectUrl($paymentUrl);
 
         } catch (Exception $e) {
             Mage::logException($e);
+            $helper->log('Redirect: Error for order #' . $order->getIncrementId() . ': ' . $e->getMessage());
             Mage::getSingleton('core/session')->addError(
-                Mage::helper('nopayn')->__('Unable to initialize payment. Please try again.')
+                $helper->__('Unable to initialize payment. Please try again.')
             );
 
             if ($order->canCancel()) {
@@ -125,8 +188,11 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
             return;
         }
 
+        /** @var NoPayn_Payment_Helper_Data $helper */
+        $helper = Mage::helper('nopayn');
+        $helper->log('Success: Customer returned for NoPayn order ' . $nopaynOrderId);
+
         try {
-            $helper      = Mage::helper('nopayn');
             $transaction = $helper->getTransactionByNopaynId($nopaynOrderId);
 
             if (!$transaction) {
@@ -142,14 +208,20 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
             $apiOrder = $api->getOrder($nopaynOrderId);
             $status   = $apiOrder['status'];
 
+            $helper->log('Success: NoPayn order ' . $nopaynOrderId . ' status: ' . $status);
             $helper->updateTransactionStatus($nopaynOrderId, $status);
+
+            // Store transaction ID if not already saved
+            if (empty($transaction['transaction_id']) && !empty($apiOrder['transactions'][0]['id'])) {
+                $helper->updateTransactionId($nopaynOrderId, $apiOrder['transactions'][0]['id']);
+            }
 
             if ($status === 'completed') {
                 $helper->completeOrder($order, $nopaynOrderId);
             } elseif (in_array($status, ['cancelled', 'expired', 'error'])) {
                 $helper->cancelOrder($order, $nopaynOrderId, $status);
                 Mage::getSingleton('core/session')->addError(
-                    Mage::helper('nopayn')->__('Payment was not completed.')
+                    $helper->__('Payment was not completed.')
                 );
                 $session->unsNopaynOrderId();
                 $this->_restoreQuoteAndRedirect($session);
@@ -162,8 +234,9 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
 
         } catch (Exception $e) {
             Mage::logException($e);
+            $helper->log('Success: Error for NoPayn order ' . $nopaynOrderId . ': ' . $e->getMessage());
             Mage::getSingleton('core/session')->addError(
-                Mage::helper('nopayn')->__('Unable to verify payment status. Please contact support.')
+                $helper->__('Unable to verify payment status. Please contact support.')
             );
             $this->_redirect('checkout/cart');
         }
@@ -177,9 +250,13 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
         $session       = Mage::getSingleton('checkout/session');
         $nopaynOrderId = $session->getNopaynOrderId();
 
+        /** @var NoPayn_Payment_Helper_Data $helper */
+        $helper = Mage::helper('nopayn');
+
         if ($nopaynOrderId) {
+            $helper->log('Cancel: Customer cancelled payment for NoPayn order ' . $nopaynOrderId);
+
             try {
-                $helper      = Mage::helper('nopayn');
                 $transaction = $helper->getTransactionByNopaynId($nopaynOrderId);
 
                 if ($transaction) {
@@ -197,6 +274,7 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
                 }
             } catch (Exception $e) {
                 Mage::logException($e);
+                $helper->log('Cancel: Error for NoPayn order ' . $nopaynOrderId . ': ' . $e->getMessage());
             }
 
             $session->unsNopaynOrderId();
@@ -213,29 +291,37 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
         $body = file_get_contents('php://input');
         $data = json_decode($body, true);
 
+        /** @var NoPayn_Payment_Helper_Data $helper */
+        $helper = Mage::helper('nopayn');
+        $helper->log('Webhook: Received payload: ' . $body);
+
         if (!$data || empty($data['order_id'])) {
+            $helper->log('Webhook: Invalid payload, missing order_id.');
             $this->getResponse()->setHttpResponseCode(400);
             return;
         }
 
         $nopaynOrderId = $data['order_id'];
+        $helper->log('Webhook: Processing NoPayn order ' . $nopaynOrderId);
 
         try {
-            $helper      = Mage::helper('nopayn');
             $transaction = $helper->getTransactionByNopaynId($nopaynOrderId);
 
             if (!$transaction) {
+                $helper->log('Webhook: No local transaction found for ' . $nopaynOrderId);
                 $this->getResponse()->setHttpResponseCode(200);
                 return;
             }
 
             if (in_array($transaction['status'], ['completed', 'cancelled', 'expired'])) {
+                $helper->log('Webhook: Transaction already in final state: ' . $transaction['status']);
                 $this->getResponse()->setHttpResponseCode(200);
                 return;
             }
 
             $order = Mage::getModel('sales/order')->load($transaction['order_id']);
             if (!$order->getId()) {
+                $helper->log('Webhook: Order not found for transaction ' . $nopaynOrderId);
                 $this->getResponse()->setHttpResponseCode(200);
                 return;
             }
@@ -244,7 +330,13 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
             $apiOrder = $api->getOrder($nopaynOrderId);
             $status   = $apiOrder['status'];
 
+            $helper->log('Webhook: NoPayn order ' . $nopaynOrderId . ' status: ' . $status);
             $helper->updateTransactionStatus($nopaynOrderId, $status);
+
+            // Store transaction ID if not already saved
+            if (empty($transaction['transaction_id']) && !empty($apiOrder['transactions'][0]['id'])) {
+                $helper->updateTransactionId($nopaynOrderId, $apiOrder['transactions'][0]['id']);
+            }
 
             if ($status === 'completed') {
                 $helper->completeOrder($order, $nopaynOrderId);
@@ -256,6 +348,7 @@ class NoPayn_Payment_PaymentController extends Mage_Core_Controller_Front_Action
 
         } catch (Exception $e) {
             Mage::logException($e);
+            $helper->log('Webhook: Error for NoPayn order ' . $nopaynOrderId . ': ' . $e->getMessage());
             $this->getResponse()->setHttpResponseCode(500);
         }
     }
